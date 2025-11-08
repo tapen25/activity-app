@@ -1,0 +1,89 @@
+<!DOCTYPE html>
+<html lang="ja">
+<head>
+    <meta charset="UTF-8">
+    <title>行動認識アプリ</title>
+    <style>
+        body { font-family: sans-serif; text-align: center; margin-top: 50px; }
+        #status { font-size: 2em; font-weight: bold; color: #333; height: 50px; }
+        #error { color: red; }
+        button { font-size: 1.2em; padding: 10px 20px; }
+    </style>
+</head>
+<body>
+    <h1>あなたの現在の行動</h1>
+    <div id="status">---</div>
+    <button id="startButton">計測開始</button>
+    <p id="error"></p>
+
+    <script>
+        const statusEl = document.getElementById('status');
+        const errorEl = document.getElementById('error');
+        const startButton = document.getElementById('startButton');
+
+        // APIのエンドポイント (同じサーバーの /predict を呼び出す)
+        const API_ENDPOINT = '/predict'; 
+
+        startButton.onclick = () => {
+            if (typeof Accelerometer === 'undefined') {
+                errorEl.innerText = 'エラー: このブラウザは加速度センサーに対応していません。';
+                return;
+            }
+
+            statusEl.innerText = '計測中...';
+            errorEl.innerText = '';
+            
+            // TODO: ここに実際のセンサーデータ収集と特徴量計算のロジックを実装
+            
+            // ★現在はダミーデータを送信しています★
+            const dummyFeatures = calculateDummyFeatures(); 
+            sendFeaturesToServer(dummyFeatures);
+        };
+
+        /**
+         * ★重要★ (これはダミーです)
+         * 訓練データ (training_features.csv) を作成した時と
+         * 全く同じロジックで特徴量を計算する関数を実装する必要があります。
+         */
+        function calculateDummyFeatures() {
+            // 例: 「静止」に近いダミーデータ
+            return {
+                mean_acc: 0.93,
+                std_acc: 0.02,
+                max_acc: 0.99,
+                min_acc: 0.87,
+                energy: 0.86
+            };
+        }
+
+        /**
+         * 特徴量をサーバーに送信し、結果を表示する関数
+         */
+        async function sendFeaturesToServer(featureData) {
+            try {
+                const response = await fetch(API_ENDPOINT, {
+                    method: 'POST',
+                    headers: { 'Content-Type': 'application/json' },
+                    body: JSON.stringify(featureData),
+                });
+
+                if (!response.ok) {
+                    throw new Error(`サーバーエラー: ${response.status}`);
+                }
+
+                const result = await response.json(); 
+
+                if (result.predicted_label) {
+                    statusEl.innerText = result.predicted_label;
+                } else if (result.error) {
+                    errorEl.innerText = `予測エラー: ${result.error}`;
+                }
+
+            } catch (error) {
+                console.error('通信エラー:', error);
+                errorEl.innerText = `通信エラー: ${error.message}`;
+            }
+        }
+    </script>
+</body>
+</html>

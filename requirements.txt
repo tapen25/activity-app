@@ -1,0 +1,5 @@
+Flask
+scikit-learn
+joblib
+numpy
+gunicorn  # RenderでPythonサーバーを動かすための本番用サーバー
