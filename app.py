@@ -1,68 +1,62 @@
-from flask import Flask, request, jsonify, render_template
-import joblib
+from flask import Flask, request, jsonify
+import pandas as pd
 import numpy as np
+from sklearn.ensemble import RandomForestClassifier
+from sklearn.model_selection import train_test_split
+from sklearn.metrics import accuracy_score
+import joblib
 
+# ======================
+# 1. データ読み込み＆学習
+# ======================
+df = pd.read_csv("training_features.csv")
+
+X = df[["mean_acc", "std_acc", "max_acc", "min_acc", "energy"]]
+y = df["label_id"]
+label_map = dict(zip(df["label_id"], df["label"]))
+
+X_train, X_test, y_train, y_test = train_test_split(
+    X, y, test_size=0.2, random_state=42, stratify=y
+)
+
+model = RandomForestClassifier(n_estimators=200, random_state=42)
+model.fit(X_train, y_train)
+
+y_pred = model.predict(X_test)
+acc = accuracy_score(y_test, y_pred)
+print(f"✅ 正解率: {acc:.4f}")
+
+joblib.dump(model, "model.pkl")
+
+# ======================
+# 2. Flask API
+# ======================
 app = Flask(__name__)
+model = joblib.load("model.pkl")
 
-# ----------------------------------------------------
-# モデルの読み込み
-# ----------------------------------------------------
-try:
-    model = joblib.load('activity_model.joblib')
-    print("モデルの読み込みに成功しました。")
-except Exception as e:
-    model = None
-    print(f"モデル読み込みエラー: {e}")
+@app.route("/")
+def index():
+    return "Activity Recognition API is running!"
 
-# ----------------------------------------------------
-# 1. Webページ (index.html) を表示するルート
-# ----------------------------------------------------
-@app.route('/')
-def home():
-    # 'templates' フォルダ内の 'index.html' をブラウザに返す
-    return render_template('index.html')
-
-# ----------------------------------------------------
-# 2. 予測API (/predict) のルート
-# ----------------------------------------------------
-@app.route('/predict', methods=['POST'])
-def predict_activity():
-    if model is None:
-        return jsonify({'error': 'モデルが読み込まれていません'}), 500
-
+@app.route("/predict", methods=["POST"])
+def predict():
+    """
+    JSON input:
+    {
+      "features": [mean_acc, std_acc, max_acc, min_acc, energy]
+    }
+    """
     try:
-        # ブラウザから送信されたJSONデータを取得
-        data = request.get_json(force=True)
-        
-        # 訓練時と同じ5つの特徴量
-        features = [
-            data['mean_acc'],
-            data['std_acc'],
-            data['max_acc'],
-            data['min_acc'],
-            data['energy']
-        ]
-        
-        # モデルで予測
-        final_features = [np.array(features)]
-        prediction_id = model.predict(final_features)
-        
-        # 予測結果を分かりやすい形式に
-        output_id = int(prediction_id[0])
-        label_map = {0: '静止 (Stay)', 1: '歩行 (Walk)', 2: '走行 (Jog)'} # CSVの凡例に合わせてください
-        output_label = label_map.get(output_id, '不明')
-
-        # 予測結果をJSONでブラウザに返す
+        data = request.get_json()
+        features = np.array(data["features"]).reshape(1, -1)
+        pred_id = int(model.predict(features)[0])
+        pred_label = label_map[pred_id]
         return jsonify({
-            'predicted_id': output_id,
-            'predicted_label': output_label
+            "label_id": pred_id,
+            "label": pred_label
         })
     except Exception as e:
-        return jsonify({'error': str(e)}), 400
+        return jsonify({"error": str(e)}), 400
 
-# ----------------------------------------------------
-# (ローカルテスト用) 
-# ----------------------------------------------------
-if __name__ == '__main__':
-    # python app.py で直接実行した時用
-    app.run(debug=True, host='0.0.0.0', port=5000)
+if __name__ == "__main__":
+    app.run(host="0.0.0.0", port=10000)

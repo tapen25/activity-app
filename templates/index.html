@@ -1,220 +1,44 @@
 <!DOCTYPE html>
 <html lang="ja">
 <head>
-    <meta charset="UTF-8">
-    <title>行動認識</title>
-    <style>
-        body { font-family: sans-serif; text-align: center; margin-top: 50px; }
-        #status { font-size: 2em; font-weight: bold; color: #333; height: 50px; }
-        #error { color: red; }
-        button { font-size: 1.2em; padding: 10px 20px; }
-    </style>
+  <meta charset="UTF-8">
+  <title>リアルタイム行動推定</title>
+  <style>
+    body { font-family: sans-serif; text-align: center; margin-top: 50px; }
+    #state { font-size: 2rem; margin-top: 20px; }
+  </style>
 </head>
 <body>
-    <h1>あなたの現在の行動</h1>
-    <div id="status">---</div>
-    <button id="startButton">計測開始</button>
-    <p id="error"></p>
+  <h1>リアルタイム行動推定</h1>
+  <div id="state">Loading...</div>
 
-    <script>
-    const statusEl = document.getElementById('status');
-    const errorEl = document.getElementById('error');
-    const startButton = document.getElementById('startButton');
-    const API_ENDPOINT = '/predict'; // サーバーのAPI
+  <script>
+    const apiURL = "https://my-activity-app-7f2c.onrender.com"; // ←あなたのRender URLに変更
 
-    // -----------------------------------------------------------------
-    // ★ 設定値 (訓練時の設定に合わせる必要があります) ★
-    // -----------------------------------------------------------------
-    
-    // センサーからデータを読み取る頻度 (例: 1秒間に50回 = 50Hz)
-    // 注意: Accelerometerの 'frequency' は「推奨値」であり、デバイスにより異なります
-    const SENSOR_FREQUENCY_HZ = 50; 
-    
-    // 1回の予測に使うデータ収集期間 (例: 2秒間)
-    // (SENSOR_FREQUENCY_HZ * WINDOW_SECONDS) が訓練時の1データあたりの行数と
-    // 近くなるように調整してください。
-    const WINDOW_SECONDS = 2; 
-    
-    // 1回の予測（ウィンドウ）に必要なサンプル数
-    const SAMPLES_PER_WINDOW = SENSOR_FREQUENCY_HZ * WINDOW_SECONDS; // (例: 50 * 2 = 100サンプル)
-    
-    // 予測を実行する間隔 (ミリ秒) (例: 1秒ごとに予測)
-    const PREDICTION_INTERVAL_MS = 1000; 
-
-    // -----------------------------------------------------------------
-
-    let sensor; // センサーオブジェクト
-    let sensorDataBuffer = []; // 生データを一時的にためるバッファ
-    let isMeasuring = false;
-    let predictionInterval;
-
-    // 「計測開始」ボタンが押された時の処理
-    startButton.onclick = () => {
-        if (!isMeasuring) {
-            startMeasurement();
-        } else {
-            stopMeasurement();
-        }
-    };
-
-    /**
-     * 計測を開始する関数
-     */
-    async function startMeasurement() {
-        // ブラウザが対応しているかチェック
-        if (typeof Accelerometer === 'undefined') {
-            errorEl.innerText = 'エラー: このブラウザ(または設定)は加速度センサーに対応していません。';
-            return;
-        }
-
-        try {
-            // センサーへのアクセス許可を要求
-            // (HTTPS接続でないと動作しない場合があります)
-            sensor = new Accelerometer({ frequency: SENSOR_FREQUENCY_HZ });
-
-            // エラーハンドリング
-            sensor.addEventListener('error', event => {
-                errorEl.innerText = `センサーエラー: ${event.error.name} - ${event.error.message}`;
-                stopMeasurement();
-            });
-
-            // センサーがデータを読み取るたびに呼ばれる
-            sensor.addEventListener('reading', () => {
-                // 合成加速度を計算してバッファに追加
-                const magnitude = Math.sqrt(sensor.x**2 + sensor.y**2 + sensor.z**2);
-                sensorDataBuffer.push(magnitude);
-            });
-
-            // センサー起動
-            await sensor.start();
-            isMeasuring = true;
-            startButton.innerText = '計測停止';
-            statusEl.innerText = '計測中...';
-            errorEl.innerText = '';
-
-            // データをクリア
-            sensorDataBuffer = [];
-
-            // PREDICTION_INTERVAL_MS ごとに予測を実行するタイマーを開始
-            predictionInterval = setInterval(runPrediction, PREDICTION_INTERVAL_MS);
-
-        } catch (error) {
-            errorEl.innerText = `センサー起動エラー: ${error.name} - ${error.message}`;
-        }
+    async function predict(features) {
+      const res = await fetch(apiURL, {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ features })
+      });
+      const data = await res.json();
+      document.getElementById("state").textContent = data.label || "error";
     }
 
-    /**
-     * 計測を停止する関数
-     */
-    function stopMeasurement() {
-        if (sensor) {
-            sensor.stop();
-        }
-        if (predictionInterval) {
-            clearInterval(predictionInterval);
-        }
-        isMeasuring = false;
-        startButton.innerText = '計測開始';
-        statusEl.innerText = '---';
-        sensorDataBuffer = [];
+    // 加速度センサーからのデータを送る（例：mean_accなど仮値）
+    if (window.DeviceMotionEvent) {
+      window.addEventListener("devicemotion", (e) => {
+        const ax = e.acceleration.x || 0;
+        const ay = e.acceleration.y || 0;
+        const az = e.acceleration.z || 0;
+        const mean_acc = (Math.abs(ax) + Math.abs(ay) + Math.abs(az)) / 3;
+        const std_acc = Math.sqrt((ax**2 + ay**2 + az**2) / 3);
+        const features = [mean_acc, std_acc, mean_acc*1.05, mean_acc*0.8, mean_acc**2];
+        predict(features);
+      });
+    } else {
+      document.getElementById("state").textContent = "センサー非対応";
     }
-
-    /**
-     * 予測を実行する関数 (setIntervalから呼ばれる)
-     */
-    function runPrediction() {
-        // バッファに十分なデータが溜まっているか？
-        if (sensorDataBuffer.length < SAMPLES_PER_WINDOW) {
-            // まだデータが足りない
-            statusEl.innerText = `データ収集中... (${sensorDataBuffer.length}/${SAMPLES_PER_WINDOW})`;
-            return;
-        }
-
-        // バッファから最新のデータを必要分だけ切り出す
-        // (例: 100サンプル)
-        const currentWindowData = sensorDataBuffer.slice(-SAMPLES_PER_WINDOW);
-
-        // ★★★ ここが最重要 ★★★
-        // 訓練時と同じ特徴量を計算する
-        const features = calculateFeatures(currentWindowData);
-
-        // 特徴量をサーバーに送信
-        sendFeaturesToServer(features);
-        
-        // (任意) バッファを少し減らして、古すぎるデータを捨てる
-        // バッファ全体をクリアすると、次の予測までまた時間がかかるため
-        sensorDataBuffer.splice(0, sensorDataBuffer.length - SAMPLES_PER_WINDOW);
-    }
-
-    /**
-     * ★★★ 訓練時と同じ特徴量を計算する関数 ★★★
-     * @param {number[]} data - 合成加速度の配列 (例: [0.98, 0.99, ...])
-     */
-    function calculateFeatures(data) {
-        if (data.length === 0) {
-            return { mean_acc: 0, std_acc: 0, max_acc: 0, min_acc: 0, energy: 0 };
-        }
-
-        // 1. 合計
-        const sum = data.reduce((a, b) => a + b, 0);
-        // 2. 平均 (mean_acc)
-        const mean = sum / data.length;
-        // 3. 最大 (max_acc)
-        const max = Math.max(...data);
-        // 4. 最小 (min_acc)
-        const min = Math.min(...data);
-
-        // 5. 標準偏差 (std_acc)
-        const variance = data.reduce((sq, n) => sq + (n - mean) ** 2, 0) / data.length;
-        const std = Math.sqrt(variance);
-
-        // 6. エネルギー (energy) ★注意★
-        // energy の計算方法が訓練時と異なる可能性があります。
-        // ここでは「二乗和の平均」を仮定しています。
-        const energy = data.reduce((e, n) => e + n ** 2, 0) / data.length;
-
-        // サーバー (app.py) が期待するキーと同じ名前で返す
-        return {
-            mean_acc: mean,
-            std_acc: std,
-            max_acc: max,
-            min_acc: min,
-            energy: energy
-        };
-    }
-
-    /**
-     * 特徴量をサーバーに送信し、結果を表示する関数 (前回と同じ)
-     */
-    async function sendFeaturesToServer(featureData) {
-        try {
-            const response = await fetch(API_ENDPOINT, {
-                method: 'POST',
-                headers: { 'Content-Type': 'application/json' },
-                body: JSON.stringify(featureData),
-            });
-
-            if (!response.ok) {
-                // サーバーがエラーを返した場合 (400, 500系)
-                statusEl.innerText = `予測エラー (サーバー)`;
-                return;
-            }
-
-            const result = await response.json(); 
-
-            if (result.predicted_label) {
-                // 予測が成功したらステータスを更新
-                statusEl.innerText = result.predicted_label;
-            } else if (result.error) {
-                statusEl.innerText = `予測エラー (データ)`;
-            }
-
-        } catch (error) {
-            // ネットワークエラーなど
-            console.error('通信エラー:', error);
-            errorEl.innerText = `通信エラー`;
-        }
-    }
-</script>
+  </script>
 </body>
 </html>
